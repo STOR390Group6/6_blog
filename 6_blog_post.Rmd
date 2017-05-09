@@ -1,0 +1,125 @@
+---
+title: "NBA Players' Twitter Sentiment and Performance"
+author: "Jack Nicastro, David Kang, Eugene Shin"
+date: "May 8, 2017"
+output: html_document
+---
+
+https://idc9.github.io/stor390/
+
+NBA players are widely known and respected for their play on the court. LeBron James and Stephen Curry are two of the best players in the league right now and are constantly using social media to share their off-court life. One of the most popular forms is Twitter. James and Curry have a combined 45 million followers from around the world and use social media to tell their fans what they do off the court, address world issues, and other things. Some players tweet often (hundreds of tweets per year), while others tweet sparingly (less than 25 tweets per year). Some players tweet with their true personality and don’t have much of a filter. But there are others who are coached on social media to only say certain kinds of things to present their image in a certain positive or neutral way.  
+
+The question being raised is dealing with player psychology versus performance. More specifically, is there a relationship between what the players say on Twitter and how they perform on the court. For example, if a player has a really good game, is he likely to tweet something positive or negative about it. Additionally, we can look at it from the team standpoint in terms of the team average sentiment versus the team’s overall win percentage. This analysis could be useful in a few ways. If there is a strong relationship between the two variables, then it could be inferred that players actually care about how they play and winning. If there isn’t much of a relationship, then it can be inferred that players are just playing for the paycheck.  
+
+To conduct this analysis, data was taken from www.basketball.reference.com/ to gather player and team performance data from the 2016-2017 NBA season. To analyze Twitter data, Basketball Reference also contains the Twitter usernames of all of the players who have a Twitter, so this was included in the scraped data. After gathering the usernames, tweets of each player were easily obtained via R. Since not every player has a Twitter, only data from those who does was included.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+library(tidyverse)
+library(readxl)
+library(stringr)
+teams <- read_excel("~/Documents/STOR Classes/STOR 390/6_blog/data/teams.xlsx")
+load("~/Documents/STOR Classes/STOR 390/6_blog/data/gamelogs.Rda")
+load("~/Documents/STOR Classes/STOR 390/6_blog/data/twitter_sentiment.Rda")
+
+#cleaning gamelogs
+gamelogs <- gamelogs %>%
+  rename(player = name, team = current, minutes= mp, game_score = gsc, plus_minus = pm) %>%
+  na.omit()
+gamelogs$date <- as.POSIXct(gamelogs$date)
+
+#cleaning teams
+teams <- separate(teams, col = streak, into = c('streak_type', 'streak_amt'), sep = " ") 
+teams <- teams %>%
+  mutate(result_bin = if_else(result == 'W', 1, -1)) %>%
+  mutate(win_pct = current_wins/(current_wins + current_losses))
+
+#normalizing game score
+gamelogs$game_score <- as.numeric(gamelogs$game_score)
+gamelogs <- gamelogs %>%
+  mutate(normalized_gamescore = (game_score-mean(gamelogs$game_score))/sd(gamelogs$game_score))
+
+#normalizing sentiment
+twitter_sentiment <- twitter_sentiment %>%
+  mutate(normalized_sent = (sent-mean(twitter_sentiment$sent))/sd(twitter_sentiment$sent))
+
+#total tweets
+tweet_counts <- twitter_sentiment %>% 
+  separate(col = created_at, into = c('date', 'time'), sep = " ") %>%
+  group_by(date) %>%
+  summarise(total = n(), mean_sent = mean(sent)) %>%
+  arrange(desc(total))  #besides 3/14,pi day (also steph curry's birthday so maybe players reached out?), the days with the most amount of tweets are before March. This makes sense because March is when teams lock in and really push for the playoffs more than usual.
+
+#team avg sentiment
+team_sent <- twitter_sentiment %>% 
+  separate(col = created_at, into = c('date', 'time'), sep = " ") %>%
+  group_by(Tm, date) %>%
+  summarise(avg= mean(sent))
+
+```
+
+Initially, we had the following plot that showed somewhat of a relationship between average player sentiment and average player game score. Game score is a metric that combines conventional statistics like points, rebounds, assists, etc. into a formula to output a single number that describes how a player performed in a given game. The two variables, sentiment and game score, were normalized to adjust the values measured on different scales to a common scale. This made the averages comparable over time.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+twitter_sentiment %>% 
+  ggplot() +
+  geom_smooth(aes(x=created_at, y = normalized_sent, color='blue'), se=FALSE)+
+  geom_smooth(data=gamelogs, (aes(x=as.POSIXct(date), y=normalized_gamescore, color='red')), se=FALSE)+
+scale_color_manual(name=NULL, labels = c("Player Sentiment", "Player Game Score"), values = c("blue", "red"))+
+  theme_bw()+
+  labs(title="Player Sentiment Has Some Relationship with Game Scores", x="Date", y="Normalized Level")
+
+```
+  
+From this graphic, we wondered if players started to tweet more positively because they were playing better as the season went on. But then as the game scores reached their peak, the tweet sentiment began to fluctuate with no apparent relationship. From this graph, it was determined that there was potentially a relationship based on the first few months, but the second half of the season didn't show the same relationship. However, we figured that we could show each player's specific relationship in a Shiny app. Here is a graphic from the application that looks at Stephen Curry's sentiment and game score throughout the season. Note how the sentiment and average game score have a relationship for the first half of the season, but then go in different directions at the end. 
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+ ggplot() +
+       geom_point(data=filter(twitter_sentiment, Player== "Stephen Curry"), aes(x=created_at, y = normalized_sent, color = "blue")) +
+        labs(title="Curry Sentiment vs. Game Score", x="Date", y= "Normalized Level") +
+        geom_smooth(data=filter(twitter_sentiment, Player== "Stephen Curry"), aes(x=created_at, y = normalized_sent, color="blue"), se = FALSE) +
+        theme_bw()+
+      #geom_point(data=filter(gamelogs, player== "Stephen Curry"), aes(x=as.POSIXct(date), y=normalized_gamescore, color='red'))+
+     geom_smooth(data=filter(gamelogs, player== "Stephen Curry"), aes(x=as.POSIXct(date), y=normalized_gamescore, color="red"), se=FALSE) +
+       scale_color_manual(name=NULL, labels=c("Sentiment", "Game Score"), values=c("blue", "red"))+
+    theme(plot.title = element_text(face="bold", size=24, hjust=0)) +
+     theme(axis.title = element_text(size=16))
+```
+
+
+Here is the same kind of of graph but looking at Al Horford's relationship. You can see that there is almost an inverse relationship between sentiment and game score. So the relationship varies from player to player. This is where the Shiny app can be useful to see specific players' relationships.  
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+ggplot() +
+       geom_point(data=filter(twitter_sentiment, Player== "Al Horford"), aes(x=created_at, y = normalized_sent, color = "blue")) +
+        labs(title="Horford Sentiment vs. Game Score", x="Date", y= "Normalized Level") +
+        geom_smooth(data=filter(twitter_sentiment, Player== "Al Horford"), aes(x=created_at, y = normalized_sent, color="blue"), se = FALSE) +
+        theme_bw()+
+      #geom_point(data=filter(gamelogs, player== "John Wall"), aes(x=as.POSIXct(date), y=normalized_gamescore, color='red'))+
+     geom_smooth(data=filter(gamelogs, player== "Al Horford"), aes(x=as.POSIXct(date), y=normalized_gamescore, color="red"), se=FALSE) +
+       scale_color_manual(name=NULL, labels=c("Sentiment", "Game Score"), values=c("blue", "red"))+
+    theme(plot.title = element_text(face="bold", size=24, hjust=0)) +
+     theme(axis.title = element_text(size=16))
+```
+
+  
+Additionally, we looked at the data on a team by team basis to see if there was a relationship between sentiment and team win percentage. From our analysis and an example graphic below, there was no indication of a relationship. The following is the Cleveland Cavaliers team average sentiment and win percentage:
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+team_sent %>% filter(Tm=="CLE") %>%
+  ggplot()+
+  geom_point(aes(x=as.POSIXct(date), y=avg, color='blue'))+
+  geom_point(data=filter(teams,team=="CLE"), aes(x=as.POSIXct(date, format= "%a, %b %d, %Y"), y=win_pct, color='red'))+
+  geom_smooth(data=team_sent, aes(x=as.POSIXct(date), y=avg,  color='blue'), se=FALSE) +
+  scale_color_manual(name=NULL, labels = c("Team Sent", "Team Win%"), values = c("blue", "red"))+
+  labs(title="Cleveland Cavaliers Team Sentiments and Win Percentage", x="Date", y="Win % and Sentiment")+
+  theme_bw()+
+  theme(plot.title = element_text(face="bold", size=16, hjust=0)) +
+     theme(axis.title = element_text(size=16))
+
+
+```
+  
+  
+From the analysis conducted, we conclude that there is no relationship between team sentiment and team win percentage. But for players, there may or may not be. We see how there is some relationship for the first half of the year, perhaps because they are excited to start playing again. But then after the halfway point of the season, there really isn't a relationship. This may be due to the fact that some players and teams are no longer in contention to make the playoffs, so they start not caring as much. It's impossible to tell for certain, but this is a case that many say is a common habit. In using the Shiny app, you'll see that some players have strong relationships between performance and sentiment, while others may have no relationship at all. 
